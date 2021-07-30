@@ -1,0 +1,18 @@
+from aiogram.utils.callback_data import CallbackData
+
+project_call = CallbackData("project", "name", "id")
+department_call = CallbackData("department", "name", "id")
+user_call = CallbackData("user", "id")
+pinned_project_call = CallbackData('pinnedProject', 'name', 'id')
+edit_project = CallbackData('editProject', 'id', 'name')
+delete_project = CallbackData('deleteProject', 'id')
+worker_call = CallbackData('worker', 'id', 'name')
+add_worker_call = CallbackData('addWorker', 'deprtment_id')
+add_user_to_department = CallbackData('addUserToDepartment', 'id')
+unzip = CallbackData('unzip', 'id', 'name')
+archive = CallbackData('archive', 'id', 'name')
+history_pays = CallbackData('historyPays', 'id')
+add_pay = CallbackData('addPay', 'id')
+accept_request_pay = CallbackData('z', 'a', 'i', 'd', 'n', 'c')
+not_approved_pay = CallbackData('not_approved_pay', 'id_user', 'date', 'comment')
+anchor_callback = CallbackData('anchor', 'id_project', 'id_user')

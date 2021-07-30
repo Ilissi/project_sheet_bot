@@ -1,9 +1,12 @@
-from environs import Env
 
-# Теперь используем вместо библиотеки python-dotenv библиотеку environs
-env = Env()
-env.read_env()
-
-BOT_TOKEN = env.str("BOT_TOKEN")  # Забираем значение типа str
-ADMINS = env.list("ADMINS")  # Тут у нас будет список из админов
-IP = env.str("ip")  # Тоже str, но для айпи адреса хоста
+BOT_TOKEN = '1801008597:AAGLmA3GJLad_-NTa3JPPtrSxLw_nbF2Gdo'
+PGUSER = 'maksimboginic'
+PGPASSWORD = ' '
+DATABASE = 'googlebot'
+admin = 474053240
+url_sheet = 'https://docs.google.com/spreadsheets/d/1mUYwoTQSk5xjX980QTHVpOnfhJ_K3D-U17sLEyj_aBc/edit?usp=sharing'
+ip = '127.0.0.1'
+PORT = '5432'
+GOOGLE_CREDENTIALS_FILE = 'data/united-embassy-310520-27d79836c0e6.json'
+email = 'vick.kuzmin@gmail.com'
+POSTGRES_URL = F'postgresql://{PGUSER}:{PGPASSWORD}@{ip}:{PORT}/{DATABASE}'
