@@ -16,7 +16,7 @@ async def create_spread():
     project = await select_all_projects()
     if len(spread) == 0 and len(project) != 0:
         first_project = project[0]
-        new_spread = spreedsheet_utils.create_spreadsheet(ss, first_project['name'])
+        new_spread = spreedsheet_utils.create_spreadsheet(ss, first_project['project_name'])
         await update_spreadsheet(new_spread['spreadsheetId'])
         await insert_spread(new_spread['sheetId'], new_spread['sheetTitle'], 1, first_project['id'])
     elif len(project) == 0:
@@ -34,13 +34,14 @@ async def update_spread():
         fields = await get_departments(project['id'])  # Получили отделы
         month_list = await spreedsheet_utils.get_month_list(fields)
         pages = math.ceil((len(month_list) / 6))
-        if pages == 1 and project['id'] == 1:
+        check_create_first_page = await get_spread_page(project['id'], 1)
+        if pages == 1 and project['id'] == 1 and len(check_create_first_page) == 0:
             await spreedsheet_utils.create_first_page(spread[0]['spreadsheet_id'], project['id'])
         else:
             spread_id = await get_spread(project['id'])
             if len(spread_id) == 0:
                 pages = 1
-                sheet = spreedsheet_utils.create_new_sheet(spread[0]['spreadsheet_id'], project['name'])
+                sheet = spreedsheet_utils.create_new_sheet(spread[0]['spreadsheet_id'], project['project_name'])
                 await spreedsheet_utils.create_new_page(project['id'], spread[0]['spreadsheet_id'], sheet['sheetId'], sheet['sheetTitle'],
                                                         month_list)
                 await insert_spread(sheet['sheetId'], sheet['sheetTitle'], pages, project['id'])
@@ -49,18 +50,16 @@ async def update_spread():
                 second_index = 6
                 for iter_page in range(1, pages + 1):
                     page = await get_spread_page(project['id'], iter_page)
+                    set_month = month_list[first_index:second_index]
                     if len(page) == 0:
-                        set_month = month_list[first_index:second_index]
                         sheet = spreedsheet_utils.create_new_sheet(spread[0]['spreadsheet_id'], '{} лист №{}'.format(project['name'], iter_page))
                         await spreedsheet_utils.create_new_page(project['id'], spread[0]['spreadsheet_id'], sheet['sheetId'],
                                                                 sheet['sheetTitle'], set_month)
                         await insert_spread(sheet['sheetId'], sheet['sheetTitle'], iter_page, project['id'])
                     else:
-                        spreedsheet_utils.clear_sheet(spread[0]['spreadsheet_id'], page[0]['sheetId'], page[0]['sheetTitle'])
-                        await spreedsheet_utils.create_new_page(project['id'], spread[0]['spreadsheet_id'], page[0]['sheetId'],
-                                                                page[0]['sheetTitle'], set_month)
+                        await spreedsheet_utils.clear_sheet(spread[0]['spreadsheet_id'], page[0]['sheet_id'], page[0]['sheet_title'])
+                        await spreedsheet_utils.create_new_page(project['id'], spread[0]['spreadsheet_id'], page[0]['sheet_id'],
+                                                                page[0]['sheet_title'], set_month)
                     first_index += 6
                     second_index += 6
-
-
 

@@ -8,9 +8,10 @@ from utils.db_api.utils import is_super_admin
 
 def projects_menu(projects, id_user):
     k = InlineKeyboardMarkup()
+
     for project in projects:
-        k.add(InlineKeyboardButton(project['name'], callback_data=project_call.new(id=str(project['id']),
-                                                                                   name=project['name'])))
+        k.add(InlineKeyboardButton(project['project_name'], callback_data=project_call.new(id=str(project['id']),
+                                                                                   name=project['project_name'])))
     if is_super_admin(id_user):
         k.add(InlineKeyboardButton('Добавить проект', callback_data='add_project'))
     k.add(InlineKeyboardButton('Назад', callback_data='back_main_menu'))
@@ -20,8 +21,9 @@ def projects_menu(projects, id_user):
 def pinned_projects_menu(projects):
     k = InlineKeyboardMarkup()
     for project in projects:
-        k.add(InlineKeyboardButton(project['name'], callback_data=pinned_project_call.new(name=project['name'],
+        k.add(InlineKeyboardButton(project['project_name'], callback_data=pinned_project_call.new(name=project['project_name'],
                                                                                           id=project['id'])))
+    k.add(InlineKeyboardButton('Назад', callback_data='backUser'))
     return k
 
 
@@ -40,13 +42,10 @@ def edit_project_menu(id, name):
     return k
 
 
-def free_projects_kb(projects, id):
-    k = InlineKeyboardMarkup()
-    if len(projects) != 0:
-        for project in projects:
-            k.add(InlineKeyboardButton(project['name'], callback_data='x'),
-                  InlineKeyboardButton('Закрепить', callback_data=anchor_callback.new(str(project['id']), str(id))))
-        k.add(InlineKeyboardButton('Далее', callback_data='finish_anchor'))
-    else:
-        k.add(InlineKeyboardButton('Далее', callback_data='finish_anchor'))
-    return k
+
+async def select_project_for_add(projects, user_id):
+    select_keyboard = InlineKeyboardMarkup()
+    for projects in projects:
+        select_keyboard.add(InlineKeyboardButton(projects['project_name'], callback_data=anchor_callback.new(projects['id'], user_id['id'])))
+    select_keyboard.add(InlineKeyboardButton('Назад', callback_data='users_back'))
+    return select_keyboard

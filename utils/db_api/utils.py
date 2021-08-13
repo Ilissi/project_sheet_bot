@@ -1,5 +1,4 @@
-from loader import db
-from data import config
+from data.config import ADMINS
 from utils.db_api.department_controllers import get_department_to_id, get_departments
 from utils.db_api.order_controller import select_all_orders
 from utils.db_api.project_controllers import get_project, get_pinned_projects
@@ -15,7 +14,9 @@ async def is_unemployed_users(id):
 
 
 def is_super_admin(telegram_id):
-    return telegram_id == config.admin
+    for admin in ADMINS:
+        if admin == telegram_id:
+            return True
 
 
 def unique(list1):

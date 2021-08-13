@@ -2,8 +2,8 @@ from aiogram.types import InlineKeyboardButton
 from aiogram.types import InlineKeyboardMarkup
 
 
-from utils.db_api import utils
-from utils.callback import worker_call, add_worker_call, user_call, add_user_to_department, unzip, archive, history_pays, add_pay
+from utils.callback import worker_call, add_worker_call, user_call, add_user_to_department, unzip, archive, \
+    history_pays, add_pay, department_call
 from utils.db_api.users_controller import is_admin, get_user_nickname, is_user
 from utils.db_api.utils import is_super_admin
 
@@ -32,7 +32,7 @@ async def workers_menu(workers, department_id, id_user):
     if await is_admin(id_user) or is_super_admin(id_user):
         k.add(InlineKeyboardButton('Добавить работника', callback_data=add_worker_call.new(department_id)))
         k.add(InlineKeyboardButton('Архив работников', callback_data='employee_archive'))
-    if utils.is_super_admin(id_user):
+    if is_super_admin(id_user):
         k.add(InlineKeyboardButton('Удалить отдел', callback_data='department_delete'))
     k.add(InlineKeyboardButton('Назад', callback_data='back_departments'))
     return k
@@ -50,7 +50,8 @@ def users_menu(users):
 def user_menu(role):
     k = InlineKeyboardMarkup()
     if role == 'admin':
-        k.add(InlineKeyboardButton('Закрепленные проекты', callback_data='pinnedProjects'))
+        k.add(InlineKeyboardButton('Закрепленные отделы', callback_data='pinnedProjects'))
+    k.add(InlineKeyboardButton('Закрепить пользователя', callback_data='pinNewProject'))
     k.add(InlineKeyboardButton('Удалить пользователя', callback_data='user_delete'))
     k.add(InlineKeyboardButton('Назад', callback_data='users_back'))
     return k
@@ -63,17 +64,18 @@ def permissions_menu():
     return k
 
 
-async def select_unemployed_users_menu(users):
+async def select_unemployed_users_menu(users, data):
     k = InlineKeyboardMarkup()
     for user in users:
-        if await utils.is_unemployed_users(user['id_telegram']) and user['permissions'] == 'user':
-            k.add(InlineKeyboardButton(user['nickname'], callback_data=add_user_to_department.new(user['id_telegram'])))
+        print(user)
+        k.add(InlineKeyboardButton(user['nickname'], callback_data=add_user_to_department.new(user['id_telegram'])))
+    k.add(InlineKeyboardButton('Назад', callback_data=department_call.new(name=data['department_name'], id=data['department_id'])))
     return k
 
 
 async def worker_menu(status, user_id, name, id_telegram):
     k = InlineKeyboardMarkup()
-    if await utils.is_admin(id_telegram) or utils.is_super_admin(id_telegram):
+    if await is_admin(id_telegram) or is_super_admin(id_telegram):
         if status == 'archive':
             k.add(InlineKeyboardButton('Разархивировать работника', callback_data=unzip.new(id=user_id, name=name)))
         else:
@@ -82,3 +84,11 @@ async def worker_menu(status, user_id, name, id_telegram):
     k.add(InlineKeyboardButton('Добавить оплату', callback_data=add_pay.new(user_id)))
     k.add(InlineKeyboardButton('Назад', callback_data='backWorkerInDep'))
     return k
+
+
+async def back_user_menu():
+    back_user_menu_keyboard = InlineKeyboardMarkup()
+    back_user_menu_keyboard.add(InlineKeyboardButton('Назад', callback_data='users_back'))
+    return back_user_menu_keyboard
+
+

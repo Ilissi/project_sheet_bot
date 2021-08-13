@@ -3,7 +3,10 @@ from aiogram.dispatcher import FSMContext
 from asyncpg.exceptions import UniqueViolationError
 from aiogram.types import CallbackQuery
 
-from utils.db_api.department_controllers import get_departments, add_department, delete_department
+from utils.db_api.department_controllers import get_departments, add_department, delete_department, get_department_to_id
+from utils.db_api.order_controller import get_dep_admin
+from utils.db_api.users_controller import is_user, is_admin
+from utils.db_api.utils import is_super_admin
 from utils.google_sheet.spreed_methods import update_spread
 from loader import dp
 from states.departments_state import Departments
@@ -16,7 +19,17 @@ from keyboards.inline.departments_keyboard import departments_menu, confirm_dele
 async def departments_method(call: CallbackQuery, callback_data: dict, state: FSMContext):
     project_id = callback_data.get('id')
     project_name = callback_data.get('name')
-    departments = await get_departments(int(project_id))
+    user_id = call.message.chat.id
+    if is_super_admin(user_id):
+        departments = await get_departments(int(project_id))
+    elif await is_user(user_id) or is_admin(user_id):
+        departments_list = await get_departments(int(project_id))
+        departments = []
+        for department in departments_list:
+            get_order = await get_dep_admin(int(department['id']), int(user_id))
+            if len(get_order) >= 1:
+                department = await get_department_to_id(int(department['id']))
+                departments.append(department[0])
     await call.message.edit_text(project_name + ' меню')
     await call.message.edit_reply_markup(await departments_menu(departments, call.message.chat.id))
     await state.update_data(project_id=project_id, project_name=project_name)

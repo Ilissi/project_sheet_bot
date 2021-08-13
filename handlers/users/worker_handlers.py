@@ -2,38 +2,51 @@ from aiogram.types import Message
 from aiogram.dispatcher import FSMContext
 from aiogram.utils.exceptions import ChatNotFound
 
-from data import config
-from utils.db_api.order_controller import add_order, get_pays_for_worker
-from utils.db_api.project_controllers import select_in_project, get_project
-from utils.db_api.users_controller import select_workers_in_department, select_all_users, get_archive_users, \
-    get_user_nickname, get_worker, set_status_worker, get_id_telegram
-from utils.google_sheet.spreed_methods import create_spread
+from states import Decline
+from utils.db_api.order_controller import add_order, get_pays_for_worker, get_dep_admin, get_department_admin, \
+    add_pay_for_user, update_status_pay, get_pay_by_id
+from utils.db_api.project_controllers import select_in_project
+from utils.db_api.users_controller import select_workers_in_department, get_archive_users, \
+    get_user_nickname, get_worker, set_status_worker, get_id_telegram, select_all_users_for_add, get_user_role, \
+    is_user, is_admin
+from utils.db_api.utils import is_super_admin
+from utils.google_sheet.spreed_methods import create_spread, update_spread
 from aiogram.types import CallbackQuery
 from loader import dp
 from loader import bot
 from states.add_pay import Pay
 from states.search_pay import Search
 from utils import date_pattern
-from utils.callback import department_call, add_worker_call, add_user_to_department, add_pay, worker_call, archive, history_pays, unzip
+from utils.callback import department_call, add_worker_call, add_user_to_department, add_pay, worker_call, archive, \
+    history_pays, unzip, accept_request_pay_admin, not_approved_pay_admin, not_approved_pay, accept_request_pay
 from datetime import datetime
 from keyboards.inline.departments_keyboard import departments_menu, back_users_in_dep
 from keyboards.inline.workers_keyboard import workers_menu, select_unemployed_users_menu, worker_menu
-from keyboards.inline.main_keyboard import start_menu, send_request
-
+from keyboards.inline.main_keyboard import start_menu, send_request, send_request_main_admin
+from data.config import ADMINS
 
 
 @dp.callback_query_handler(department_call.filter())
 async def department_method(call: CallbackQuery, callback_data: dict, state: FSMContext):
     department_id = callback_data.get('id')
     department_name = callback_data.get('name')
-    await state.update_data(department_id=department_id, department_name=department_name)
-    workers = await select_workers_in_department(department_id)
-    await call.message.edit_text(f'Работники отдела ' + department_name)
-    await call.message.edit_reply_markup(await workers_menu(workers, department_id, call.message.chat.id))
+    user_id = call.message.chat.id
+    user_role = await get_user_role(int(department_id), int(user_id))
+    if is_super_admin(user_id) or user_role[0]['status'] == 'admin':
+        await state.update_data(department_id=department_id, department_name=department_name)
+        workers = await select_workers_in_department(department_id)
+        await call.message.edit_text(f'Работники отдела ' + department_name)
+        await call.message.edit_reply_markup(await workers_menu(workers, department_id, user_id))
+    elif user_role[0]['status'] == 'worked':
+        await state.update_data(department_id=department_id, department_name=department_name)
+        await call.message.edit_text(f'Вы работник - ' + department_name)
+        await call.message.edit_reply_markup(await workers_menu(user_role, department_id, user_id))
+    elif user_role[0]['status'] == 'archive':
+        await call.answer('Администратор добавил Вас в архив')
 
 
 @dp.callback_query_handler(text_contains='back_departments')
-async def back_departmens(call: CallbackQuery, state: FSMContext):
+async def back_departments(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     departments = await select_in_project(int(data['project_id']))
     await call.message.edit_text('Проект ' + data['project_name'])
@@ -42,12 +55,17 @@ async def back_departmens(call: CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query_handler(add_worker_call.filter())
-async def list_add_worker_menu(call: CallbackQuery):
-    users = await select_all_users()
-    count_unemployed_users = await select_unemployed_users_menu(users)
-    if len(count_unemployed_users['inline_keyboard']) > 0:
+async def list_add_worker_menu(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    users = await select_all_users_for_add()
+    user_list = []
+    for user in users:
+        check_user = await get_dep_admin(int(data['department_id']), int(user['id_telegram']))
+        if len(check_user) == 0:
+            user_list.append(user)
+    if len(user_list) > 0:
         await call.message.edit_text('Выберите пользователя')
-        await call.message.edit_reply_markup(await select_unemployed_users_menu(users))
+        await call.message.edit_reply_markup(await select_unemployed_users_menu(user_list, data))
     else:
         await call.answer('Нет свободных работников')
 
@@ -56,7 +74,6 @@ async def list_add_worker_menu(call: CallbackQuery):
 async def add_user_to_department_method(call: CallbackQuery, state: FSMContext, callback_data: dict):
     id_user = callback_data.get('id')
     data = await state.get_data()
-    print(data['department_id'])
     await add_order(int(id_user), int(data['department_id']))
     workers = await select_workers_in_department(data['department_id'])
     await call.message.edit_text(f'Работники отдела ' + data['department_name'])
@@ -64,8 +81,9 @@ async def add_user_to_department_method(call: CallbackQuery, state: FSMContext, 
 
 
 @dp.callback_query_handler(text_contains='employee_archive')
-async def list_archive_users(call: CallbackQuery):
-    users = await get_archive_users()
+async def list_archive_users(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    users = await get_archive_users(int(data['department_id']))
     msg = ''
     if len(users) != 0:
         for user in users:
@@ -86,8 +104,9 @@ async def back_users_in_dep_method(call: CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query_handler(worker_call.filter())
-async def worker_menu_method(call: CallbackQuery, callback_data: dict):
+async def worker_menu_method(call: CallbackQuery, callback_data: dict, state: FSMContext):
     id_user = callback_data.get('id')
+    await state.update_data(user_id=id_user)
     name = callback_data.get('name')
     await call.message.edit_text(name + ' выбран')
     status = await get_worker(id_user)
@@ -96,41 +115,46 @@ async def worker_menu_method(call: CallbackQuery, callback_data: dict):
 
 
 @dp.callback_query_handler(text_contains='backWorkerInDep')
-async def back_worker_in_dep(call: CallbackQuery, state: FSMContext):
+async def add_worker_call(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     workers = await select_workers_in_department(data['department_id'])
     await call.message.edit_text(f'Работники отдела ' + data['department_name'])
     await call.message.edit_reply_markup(await workers_menu(workers, data['department_id'], call.message.chat.id))
 
 
-async def show_worker(call, id, name):
+async def show_worker(call, user_id, name):
     await call.message.edit_text(name + ' выбран')
-    status = await get_worker(id)
+    status = await get_worker(user_id)
     status = status[0]['status']
-    await call.message.edit_reply_markup(await worker_menu(status, id, name, call.message.chat.id))
+    await call.message.edit_reply_markup(await worker_menu(status, user_id, name, call.message.chat.id))
 
 
 @dp.callback_query_handler(archive.filter())
 async def archive_method(call: CallbackQuery, state: FSMContext, callback_data: dict):
-    id = callback_data.get('id')
-    await state.update_data(user_id=id)
+    user_id = callback_data.get('id')
+    await state.update_data(user_id=user_id)
     name = callback_data.get('name')
-    await set_status_worker(id, 'archive')
-    await show_worker(call, id, name)
+    await set_status_worker(user_id, 'archive')
+    await show_worker(call, user_id, name)
 
 
 @dp.callback_query_handler(unzip.filter())
 async def unzip_method(call: CallbackQuery, callback_data: dict):
-    id = callback_data.get('id')
+    user_id = callback_data.get('id')
     name = callback_data.get('name')
-    await set_status_worker(id, 'worked')
-    await show_worker(call, id, name)
+    await set_status_worker(user_id, 'worked')
+    await show_worker(call, user_id, name)
 
 
 @dp.callback_query_handler(add_pay.filter())
 async def add_pay_method(call: CallbackQuery, state: FSMContext, callback_data: dict):
-    await call.message.edit_text('Введите сумму')
-    await Pay.enter_ammount.set()
+    call_data = await state.get_data()
+    get_user = await get_user_role(int(call_data['department_id']), int(call_data['user_id']))
+    if get_user[0]['status'] == 'archive':
+        await call.answer('Пользователь в архиве!')
+    else:
+        await call.message.edit_text('Введите сумму')
+        await Pay.enter_amount.set()
 
 
 @dp.message_handler(state=Pay.enter_amount)
@@ -169,31 +193,79 @@ async def enter_date(m: Message, state: FSMContext):
         await m.answer('Не верно указана дата\nДД-ММ-ГГГГ')
 
 
+async def send_message_main_admin(msg, pay_id):
+    print('+')
+    for admin in ADMINS:
+        print('+')
+        await bot.send_message(admin, msg, reply_markup=send_request_main_admin(pay_id))
+
+
+async def send_message_admin(bot_object, list_admins, msg, pay_id):
+    for admin in list_admins:
+        try:
+            await bot.send_message(admin['user_id'], msg, reply_markup=send_request(pay_id))
+        except Exception as e:
+            await bot_object.answer('Кажется, ваш администратор удалил аккаунт!')
+
+
+async def send_message_by_user(m, admins, msg, pay_id):
+    if len(admins) == 0:
+        await send_message_main_admin(msg, pay_id)
+    elif len(admins) >= 1:
+        await send_message_admin(m, admins, msg, pay_id)
+
+
+async def accept_payment_main_admin(admin_telegram_id, pay_id):
+    accept_pay = await update_status_pay(int(pay_id), 'Подтверждена главным администратором')
+    get_pay = await get_pay_by_id(int(pay_id))
+    user_id = int(get_pay[0]['user_id'])
+    user_amount = get_pay[0]['amount']
+    await bot.send_message(admin_telegram_id, 'Уведомление о оплате отправлено работнику')
+    try:
+        await bot.send_message(user_id, 'Вам оплачено <b>{}</b>.'.format(user_amount))
+    except ChatNotFound:
+        await bot.send_message('Уведомление о оплате пользователю не доставлено\nВозможно он остановил бота')
+
+
+async def declined_payment_main_admin(admin_telegram_id, pay_id):
+    accept_pay = await update_status_pay(int(pay_id), 'Подтверждена главным администратором')
+    get_pay = await get_pay_by_id(int(pay_id))
+    user_id = int(get_pay[0]['user_id'])
+    user_amount = get_pay[0]['amount']
+    await bot.send_message(admin_telegram_id, 'Уведомление о оплате отправлено работнику')
+    try:
+        await bot.send_message(user_id, 'Вам оплачено <b>{}</b>.'.format(user_amount))
+    except ChatNotFound:
+        await bot.send_message('Уведомление о оплате пользователю не доставлено\nВозможно он остановил бота')
+
+
+def format_accept_message(pays):
+    msg = f"Отправлен запрос на оплату\nСумма <code>{pays[0]['amount']}</code> \n" \
+          f"Дата <code>{pays[0]['date']}</code>\n" \
+          f"Название услуги <code>{pays[0]['name_service']}</code>\n" \
+          f"Комментарий <code>{pays[0]['comment']}</code>"
+    return msg
+
+
 @dp.message_handler(state=Pay.enter_comment)
 async def enter_comment(m: Message, state: FSMContext):
     data = await state.get_data()
-    project = await get_project(data['project_id'])
-    user = await get_id_telegram(str(project[0]['admin']))
-    id_user = int(user[0]['id_telegram'])
+    admins = await get_department_admin(int(data['department_id']))
+    await state.finish()
     amount = data['amount']
     department_id = data['department_id']
-    msg = f"Отправлен запрос на оплату\nСумма <code>{data['amount']}</code> \n" \
-          f"Дата <code>{data['date']}</code>\n" \
-          f"Название услуги <code>{data['name_service']}</code>\n" \
-          f"Комментарий <code>{m.text}</code>"
-    try:
-        await bot.send_message(id_user, msg,
-                               reply_markup=send_request(str(m.chat.id), amount, data['date'], data['name_service'],
-                                                         m.text + '*' + department_id))
-        await m.answer(msg, reply_markup=await start_menu(config.url_sheet, m.chat.id))
-    except ChatNotFound as e:
-        print(str(e))
-        await state.finish()
-        await m.answer('Пользователь не найден', reply_markup=await start_menu(await create_spread(), m.chat.id))
-    except ValueError as e:
-        await state.finish()
-        await m.answer('Очень длинный запрос, невозможно отправить\n' + str(e),
-                       reply_markup=await start_menu(await create_spread(), m.chat.id))
+    pays = await add_pay_for_user(int(data['user_id']), float(amount), data['name_service'], data['date'], m.text, 'Не подтверждена', int(department_id))
+    pay_id = pays[0]['id']
+    msg = format_accept_message(pays)
+    if is_super_admin(m.chat.id):
+        await accept_payment_main_admin(m.chat.id, pay_id)
+    elif await is_admin(m.chat.id):
+        await send_message_main_admin(msg, pay_id)
+    elif await is_user(m.chat.id):
+        await send_message_by_user(m, admins, msg, pay_id)
+    await m.answer('Обновление данных, пожалуйста подождите')
+    await update_spread()
+    await m.answer(msg, reply_markup=await start_menu(await create_spread(), m.chat.id))
 
 
 @dp.callback_query_handler(history_pays.filter())
@@ -233,3 +305,81 @@ async def search_pay(m: Message, state: FSMContext):
             await m.answer('Оплаты не найдены', reply_markup=await start_menu(await create_spread(), m.chat.id))
     else:
         await m.answer('Неверный промежуток попробуйте еще раз\nДД-ММ-ГГГГ / ДД-ММ-ГГГГ')
+
+
+@dp.callback_query_handler(accept_request_pay.filter())
+@dp.callback_query_handler(accept_request_pay_admin.filter())
+async def accept_main_admin(call: CallbackQuery, state: FSMContext, callback_data: dict):
+    pay_id = callback_data.get('pay_id')
+    get_pay = await get_pay_by_id(int(pay_id))
+    pay = get_pay[0]
+    status_pay = get_pay[0]['status']
+    if is_super_admin(call.message.chat.id):
+        if status_pay in ['Отклонена', 'Подтверждена главным администратором']:
+            await call.answer('Действие подтверждено ранее')
+        else:
+            await accept_payment_main_admin(call.message.chat.id, pay_id)
+    else:
+        if status_pay in ['Отклонена', 'Подтверждена главным администратором', 'Подтверждена руководителем']:
+            await call.answer('Действие подтверждено ранее')
+        else:
+            accept_pay = await update_status_pay(int(pay_id), 'Подтверждена руководителем')
+            msg = format_accept_message(get_pay)
+            await send_message_main_admin(msg, pay_id)
+            await call.answer('Действие подтверждено')
+
+
+@dp.callback_query_handler(not_approved_pay.filter())
+@dp.callback_query_handler(not_approved_pay_admin.filter())
+async def not_approved_pay_admin(call: CallbackQuery, state: FSMContext, callback_data: dict):
+    pay_id = callback_data.get('pay_id')
+    get_pay = await get_pay_by_id(int(pay_id))
+    status_pay = get_pay[0]['status']
+    if is_super_admin(call.message.chat.id):
+        if status_pay in ['Отклонена', 'Подтверждена главным администратором']:
+            await call.answer('Действие подтверждено ранее')
+        else:
+            await call.answer('Введите комментарий:')
+            await state.update_data(pay_id=pay_id)
+            await Decline.comment.set()
+    else:
+        if status_pay in ['Отклонена', 'Подтверждена главным администратором', 'Подтверждена руководителем']:
+            await call.answer('Действие подтверждено ранее')
+        else:
+            await call.answer('Введите комментарий:')
+            await state.update_data(pay_id=pay_id)
+            await Decline.comment.set()
+
+
+@dp.message_handler(state=Decline.comment)
+async def decline_pay_admin(message: Message, state: FSMContext):
+    comment_admin = message.text
+    data = await state.get_data()
+    pay_id = data['pay_id']
+    get_pay = await get_pay_by_id(int(pay_id))
+    pay = get_pay[0]
+    user_id = pay['user_id']
+    get_user = await get_user_nickname(int(user_id))
+    nickname = get_user[0]['nickname']
+    admins = await get_department_admin(int(pay['department_id']))
+    accept_pay = await update_status_pay(int(pay_id), 'Отклонена')
+    if len(admins) >= 1 and is_super_admin(message.chat.id):
+        send_mess = 'Оплата сотруднику {} отклонена главным админстратором.\nКомментарий администратора: {}' \
+            .format(nickname, comment_admin)
+        for admin in admins:
+            try:
+                await bot.send_message(int(admin['user_id']), send_mess)
+            except:
+                await message.answer('Сообщение об отмене не доставлена')
+    else:
+        send_mess = 'Оплата сотруднику {} отклонена руководителем.\nКомментарий руководителя: {}' \
+            .format(nickname, comment_admin)
+    await bot.send_message(user_id, send_mess)
+    await bot.send_message(message.chat.id, 'Уведомление об отказе оплаты отправлено')
+
+
+
+
+
+
+

@@ -1,5 +1,4 @@
 from . import start_handlers
-from . import admin_handlers
 from . import department_handlers
 from . import project_handlers
 from . import worker_handlers

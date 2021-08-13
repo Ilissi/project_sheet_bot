@@ -1,10 +1,11 @@
 from datetime import datetime
 import locale
+import time
 
 from utils.db_api.department_controllers import get_departments_pay, get_departments
 from utils.db_api.order_controller import get_sum, get_user_pay
 from utils.db_api.project_controllers import get_project_name
-from utils.db_api.users_controller import get_user_id, select_user, get_user_role
+from utils.db_api.users_controller import get_user_id, select_user
 from utils.google_sheet import Spreedsheet
 from data import config
 
@@ -40,6 +41,7 @@ def add_month(ss, date_string, value, first_symbol='A', second_symbol='D'):
     ss.prepare_mergeCells(set_value)
     ss.prepare_setCellsFormat(set_value, format_dict)
     ss.prepare_setValues(set_string, [[date_string]])
+    ss.runPrepared()
 
 
 def add_department(ss, department_name, value, index_first, first_symbol='A', second_symbol='D'):
@@ -55,46 +57,22 @@ def add_department(ss, department_name, value, index_first, first_symbol='A', se
     ss.prepare_setCellsFormat(set_value, format_dict)
     ss.prepare_setValues(set_department_name, [[department_name]])
     ss.prepare_setValues(set_field, [set_field_name])
+    ss.runPrepared()
 
 
 def add_user_without_pays(ss, pays_value, value, index_first, first_symbol='A'):
     set_field = '{}{}'.format(chr(ord(first_symbol) + value), index_first + 2)
     ss.prepare_setValues(set_field, [[pays_value]])
+    ss.runPrepared()
 
 
 def add_user_with_pay(ss, username, pays_list, value, index_first, first_symbol='A', second_symbol='D'):
     set_field = '{}{}:{}{}'.format(chr(ord(first_symbol) + value), index_first + 2,
                                    chr(ord(second_symbol) + value), index_first + 2, )
-    set_list = [username, pays_list[1], pays_list[2], pays_list[4]]
+    print(set_field)
+    set_list = [username, column(pays_list, 1), column(pays_list, 2), column(pays_list, 3)]
     ss.prepare_setValues(set_field, [set_list])
-    if pays_list[5] == 'Не подтверждена':
-        ss.prepare_setCellsFormat(set_field, {"backgroundColor": {
-                                           "red": 1,
-                                           "green": 0,
-                                           "blue": 0,
-                                           "alpha": 1
-                                       }})
-    elif pays_list[5] == 'Подтверждена руководителем':
-        ss.prepare_setCellsFormat(set_field, {"backgroundColor": {
-            "red": 1,
-            "green": 1,
-            "blue": 0,
-            "alpha": 1
-        }})
-    elif pays_list[5] == 'Подтверждена главным администратором':
-        ss.prepare_setCellsFormat(set_field, {"backgroundColor": {
-            "red": 0,
-            "green": 1,
-            "blue": 0,
-            "alpha": 1
-        }})
-
-
-def check_field_status(field):
-    if field['status'] == 'close':
-        return field['department_name'] + '(ЗАКРЫТ)'
-    else:
-        return field['department_name']
+    ss.runPrepared()
 
 
 async def get_month_list(fields_list):
@@ -114,6 +92,7 @@ def add_sum(ss, name, amount, value, index_first, index_add, first_symbol='A', s
                                    chr(ord(second_symbol) + value), index_first + index_add,)
     set_list = ['Итого по {}'.format(name), amount]
     ss.prepare_setValues(set_field, [set_list])
+    ss.runPrepared()
 
 
 async def get_department_sum(field, month):
@@ -135,43 +114,31 @@ async def get_project_sum(project_id, month):
 
 async def draw_page(ss, project_id, fields, month_list):
     draw_month(ss, month_list)
+    time.sleep(4)
     counter_value_column = 0
     for month in month_list:
         counter_value_row = 3
         for field in fields:
-            name_field = check_field_status(field)
-            add_department(ss, name_field, counter_value_column, counter_value_row)
+            add_department(ss, field['department_name'], counter_value_column, counter_value_row)
             users = await get_user_id(field['id'])
             for user in set(users):
                 list_with_pays = []
                 counter_value_row += 1
                 pays = await get_user_pay(field['id'], user['user_id'])
+                time.sleep(4)
                 get_user_username = await select_user(user['user_id'])
-                user_status = await get_user_role(field['id'], user['user_id'])
-                print(user_status)
-                status = user_status[0]['status']
+                username = get_user_username[0]['nickname']
                 for pay in pays:
                     if month in pay['date']:
                         list_with_pays.append(pay)
                 if len(list_with_pays) == 0:
-                    if status == 'archive':
-                        pass
-                    else:
-                        add_user_without_pays(ss, username, counter_value_column, counter_value_row)
+                    add_user_without_pays(ss, username, counter_value_column, counter_value_row)
                 else:
+                    add_pays = []
                     for pay in list_with_pays:
-                        if pay != list_with_pays[-1]:
-                            record = [values for values in pay.values()]
-                            username = ''
-                            add_user_with_pay(ss, username, record, counter_value_column, counter_value_row)
-                            counter_value_row += 1
-                        else:
-                            if status == 'achive':
-                                username = get_user_username[0]['nickname'] + '(архив)'
-                            else:
-                                username = get_user_username[0]['nickname']
-                            record = [values for values in pay.values()]
-                            add_user_with_pay(ss, username, record, counter_value_column, counter_value_row)
+                        add_pays.append([values for values in pay.values()])
+                    add_user_with_pay(ss, username, add_pays, counter_value_column, counter_value_row)
+                time.sleep(1)
             department_sum = await get_department_sum(field, month)
             add_sum(ss, field['department_name'], department_sum, counter_value_column, counter_value_row, 3)
             counter_value_row += 1
@@ -180,7 +147,6 @@ async def draw_page(ss, project_id, fields, month_list):
         project_name = await get_project_name(project_id)
         add_sum(ss, project_name[0]['project_name'], project_sum, counter_value_column, counter_value_row, 0)
         counter_value_column += 4
-    ss.runPrepared()
 
 
 async def clear_sheet(spreadsheetId, sheetId, sheetTitle):

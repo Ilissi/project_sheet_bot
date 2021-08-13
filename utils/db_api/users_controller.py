@@ -19,7 +19,7 @@ async def select_admins():
 
 
 async def delete_user(id_telegram):
-    return await db.pool.execute('DELETE FROM users WHERE id = $1', int(id_telegram))
+    return await db.pool.execute('DELETE FROM users WHERE id_telegram = $1', int(id_telegram))
 
 
 async def get_id_telegram(id_telegram):
@@ -30,8 +30,8 @@ async def get_user_nickname(id_telegram):
     return await db.pool.fetch('SELECT nickname FROM users WHERE id_telegram = $1', int(id_telegram))
 
 
-async def get_archive_users():
-    return await db.pool.fetch("SELECT id, user_id, department_id FROM orders WHERE status = 'archive'")
+async def get_archive_users(department_id):
+    return await db.pool.fetch("SELECT id, user_id, department_id FROM orders WHERE status = 'archive' and department_id = $1", department_id)
 
 
 async def get_worker(user_id):
@@ -70,7 +70,18 @@ async def add_user(id_telegram, nickname, permissions):
 
 
 async def select_workers_in_department(id):
-    return await db.pool.fetch('SELECT id, user_id, status FROM orders WHERE department_id = $1', int(id))
+    return await db.pool.fetch('SELECT id, user_id, status FROM orders WHERE department_id = $1 and status != $2', int(id), 'admin')
+
+
+async def select_all_users_for_add():
+    return await db.pool.fetch('SELECT id, id_telegram, nickname FROM users WHERE permissions = $1', 'user')
+
+
+async def get_user_role(department_id, user_id):
+    return await db.pool.fetch('SELECT id, user_id, status, department_id FROM orders WHERE department_id = $1 AND user_id = $2',
+                               department_id, user_id)
+
+
 
 
 

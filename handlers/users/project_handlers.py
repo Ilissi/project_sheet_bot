@@ -2,7 +2,7 @@ from aiogram.types import Message
 from aiogram.dispatcher import FSMContext
 from asyncpg.exceptions import UniqueViolationError
 
-from utils.db_api.project_controllers import select_all_projects, add_project, get_pinned_projects, delete_project
+from utils.db_api.project_controllers import select_all_projects, add_project,  delete_project
 from utils.db_api.users_controller import is_admin, is_user
 from utils.db_api.utils import get_project_for_user, is_super_admin
 from utils.google_sheet.spreed_methods import update_spread
@@ -15,29 +15,14 @@ from keyboards.inline.project_keyboard import projects_menu, confirm_delete
 from states.project_state import Projects
 
 
-@dp.callback_query_handler(text_contains='projects')
-async def projects_method(call: CallbackQuery):
-    projects = ''
-    if await is_user(call.message.chat.id):
-        projects = await get_project_for_user(call.message.chat.id)
-    elif is_super_admin(call.message.chat.id):
-        projects = await get_pinned_projects(call.message.chat.id)
-        print(projects)
-    else:
-        projects = await select_all_projects()
-    await call.message.edit_text('Меню проектов')
-    await call.message.edit_reply_markup(projects_menu(projects, call.message.chat.id))
-
-
 @dp.callback_query_handler(text_contains='back_projects')
-async def back_project_method(call: CallbackQuery, state: FSMContext):
+@dp.callback_query_handler(text_contains='projects')
+async def projects_method(call: CallbackQuery, state: FSMContext):
     await state.finish()
     projects = ''
-    if await is_user(call.message.chat.id):
+    if await is_user(call.message.chat.id) or await is_admin(call.message.chat.id):
         projects = await get_project_for_user(call.message.chat.id)
-    elif await is_admin(call.message.chat.id):
-        projects = await get_pinned_projects(call.message.chat.id)
-    else:
+    elif is_super_admin(call.message.chat.id):
         projects = await select_all_projects()
     await call.message.edit_text('Меню проектов')
     await call.message.edit_reply_markup(projects_menu(projects, call.message.chat.id))
@@ -47,7 +32,6 @@ async def back_project_method(call: CallbackQuery, state: FSMContext):
 async def delete_project_method(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     await call.message.edit_text(f'Вы хотите удалить {data["project_name"]} ?')
-    print(data)
     await call.message.edit_reply_markup(confirm_delete())
 
 
@@ -73,7 +57,7 @@ async def enter_admin(m: Message, state: FSMContext):
     await state.update_data(name_project=m.text)
     data = await state.get_data()
     try:
-        await add_project(data['name_project'], -1)
+        await add_project(data['name_project'])
         await state.finish()
         projects = await select_all_projects()
         await m.answer('Меню проектов', reply_markup=projects_menu(projects, m.chat.id))

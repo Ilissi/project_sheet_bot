@@ -17,9 +17,8 @@ async def create_table_project():
     sql = """ 
     CREATE TABLE IF NOT EXISTS projects (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    admin INT NOT NULL,
-    UNIQUE (name))
+    project_name VARCHAR(255) NOT NULL,
+    UNIQUE (project_name))
     """
     await db.pool.execute(sql)
 
@@ -29,9 +28,9 @@ async def create_table_departments():
     CREATE TABLE IF NOT EXISTS departments (
     id SERIAL PRIMARY KEY ,
     project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
+    department_name VARCHAR(255) NOT NULL,
     status VARCHAR(255) NOT NULL,
-    UNIQUE (name))
+    settings BOOLEAN)
     """
     await db.pool.execute(sql)
 
@@ -81,3 +80,14 @@ async def create_table_spread_id():
     project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE)
     """
     await db.pool.execute(sql)
+
+
+#SELECT * FROM projects AS proj JOIN departments AS dep WHERE proj.id = 2;
+
+#SELECT * FROM projects AS proj JOIN departments AS dep ON proj.id = dep.project_id JOIN orders AS ord ON ord.department_id = dep.id WHERE ord.user_id != 3434;
+#SELECT * FROM departments AS dep JOIN orders AS ord ON dep.project_id = '2' WHERE dep.id! = ord.department_id;
+
+#SELECT * FROM departments LEFT JOIN orders ON departments.id!=orders.id WHERE departments.project_id=1;
+
+
+#SELECT * FROM departments LEFT JOIN orders ON orders.user_id != '3323' WHERE project_id=1;
